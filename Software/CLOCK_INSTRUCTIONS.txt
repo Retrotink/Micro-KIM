@@ -1,0 +1,53 @@
+0200 A2 EA    LDX SET NO. OF LOOPS FOR 1 SECOND
+   2 CA       DEX
+   3 A5 60    LDA STORE HOURS IN Fb
+   5 85 Fb    STA
+   7 A5 61    LDA STORE MIN'S IN FA
+   9 85 FA    STA
+   b A5 62    LDA STORE SEC'S IN F9
+   d 85 F9    STA
+   F 86 63    STX SAVE X
+  11 84 64    STY (NOT NECESSARY, FILLER)      HR    MIN    SEC
+  13 20 1F 1F "SCANDS" (DISPLAY TIME)         1 0    1 0    0 1
+  16 A6 63    LDX                              Fb     FA     F9
+  18 A4 64    LDY                            (0060) (0061) (0062)
+  1A E0 00    CPX TO LOOP (TO 0202)
+  1C d0 E4    BNE
+  1E F8       SED SET DECIMAL MODE TO AVOID HEX DIGITS             -|
+  1F 38       SEC SET CARRY                                         |
+  20 A9 00    LDA                                                   |
+  22 65 62    ADC ADD A+C+M-->A (0+1+SEC-->ACC.)                    |_ COUNT
+  24 85 62    STA STORE IN 62 (SEC) (ACC--> 62)                     |  SECONDS
+  26 d8       CLD CLEAR DECIMAL MODE FOR "SCANDS"                   |
+  27 C9 60    CMP TO LOOP (TO 0200) (RESETTING LOOP FOR NEW SECOND) |
+  29 d0 d5    BNE                                                  -|
+  2b F8       SED                                                  -|
+  2C 38       SEC SAME AS SECONDS                                   |
+  2d A9 00    LDA                                                   |
+  2F 85 62    STA RESET SEC TO 00                                   |
+  31 65 61    ADC ADD 0+1+MIN-->ACC                                 |_ COUNT
+  33 85 61    STA STORE IN 61 (MIN) (ACC-->61)                      |  MINUTES 
+  35 d8       CLD                                                   |
+  36 C9 60    CMP TO LOOP (TO 0200)                                 |
+  38 d0 C6    BNE                                                  -|
+  3A F8       SED SAME AS MINUTES                                  -|
+  3b 38       SEC                                                   |
+  3C A9 00    LDA                                                   |
+  3E 85 62    STA RESET SEC TO 00                                   |_ COUNT
+  40 85 61    STA RESET MIN TO 00                                   |  HOURS
+  42 65 60    ADC ADD 0+1+HRS-->ACC                                 |
+  44 85 60    STA                                                   |
+  46 d8       CLD                         FOR 24 HR CLOCK           |
+  47 C9 13    CMP                           47 C9, 24               |
+  49 d0 b5    BNE                           4b A9, 00              -|
+  4b A9 01    LDA WHEN HOURS REACH 13,      4F C9, 00
+  4d 85 60    STA RESET HOURS TO 1
+  4F C9 01    CMP TO LOOF (TO 0200) 
+  51 F0 AD    BEQ
+0253 20 5C 18 DISPLAY 0000 
+
+Clock Displays HHMMSS.
+Key in hours at OO60, minutes at 0061, seconds at 0062.
+Key in 0200, then GO.
+Accuracy of the clock is pretty good as far as a total software clock goes. It runs fast by a few seconds a day. I haven't tried to tinker with the timing; If you do, and come up with more accuracy, let me know!
+

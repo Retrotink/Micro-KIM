@@ -1,0 +1,13 @@
+
+Tiny Basic for the KIM-1
+
+This is the programming language Tiny Basic for the KIM-1 computer.
+
+Documentation can be found at:
+
+http://home.scarlet.be/kim-1__6502/tinybasic/tbum.html
+
+Low version requiring 4k memory from $0000 
+$0000 2816 bytes $0200 startaddress
+
+After program is dumped from tape type 200 space bar then G
