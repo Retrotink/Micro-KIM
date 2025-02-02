@@ -1,0 +1,9 @@
+Dumping files to Micro-Kim:
+
+Set ASCII settings up with about 50ms line delay and 10ms character delay so you don't drop characters.
+
+Power on Micro-kim, press reset, make sure jumper is on JP2 for RS232 operation. Start Hyperterminal. On PC, press Enter and KIM should be displayed along with an address and the value at that address. 
+
+Make sure Caps Lock is on and type 'L'. Next Click on Transfer, Transfer Text file, and select the file do transfer from the pre-setup list of programs. After it is finished, you can go to the proper address, press space, then press 'G' to Go and run that program.
+
+Click on Transfer, send text file, and select
