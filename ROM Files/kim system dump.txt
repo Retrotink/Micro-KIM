@@ -1,0 +1,1067 @@
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 1
+LINE   LOC  INSTR           SOURCE CODE
+ 
+   1                  ;
+   2                  ;- - - - - - - - - - - - - - KIM.ASM - - - - - - - - - - -
+   3                  ; COPYRIGHT MOS TECHNOLOGY, INC
+   4                  ; DATE: OCT 18, 1975 REV-D
+   5                  ;************************ 6530-003 I.C. ******************
+   6                  ; 6530-003 I.C. IS AN AUDIO CASSETTE TAPE RECORDER
+   7                  ; EXTENSION OF THE BASIC KIM MONITOR.  IT FEATURES
+   8                  ; TWO ROUTINES:
+   9                  ;   LOADT - LOAD MEMORY FROM AUDIO TAPE
+  10                  ;     ID=00     IGNORE ID
+  11                  ;     ID=FF     IGNORE ID, USE SA FOR START ADDR
+  12                  ;     ID=01-FE  USE ADDRESS ON TAPE
+  13                  ;
+  14                  ;   DUMPT - STORE MEMORY ONTO AUDIO TAPE
+  15                  ;     ID=00     SHOULD NOT BE USED
+  16                  ;     ID=FF     SHOULD NOT BE USED
+  17                  ;     ID=01-FE  NORMAL ID RANGE
+  18                  ;     SAL       LSB STARTING ADDRESS OF PROGRAM
+  19                  ;     SAH       MSB
+  20                  ;     EAL       ENDING ADDRESS OF PROGRAM
+  21                  ;     EAH       MSB
+  22                  ;
+  23                          *=    $1800
+  24                  SAD     =     $1740     6530 A DATA
+  25                  PADD    =     $1741     6530 A DATA DIRECTION
+  26                  SBD     =     $1742     6530 B DATA
+  27                  PBDD    =     $1743     6530 B DATA DIRECTION
+  28                  CLK1T   =     $1744     DIV BY 1 TIME
+  29                  CLK8T   =     $1745     DIV BY 8 TIME
+  30                  CLK64T  =     $1746     DIV BY 64 TIME
+  31                  CLKKT   =     $1747     DIV BY 1024 TIME
+  32                  CLKRDI  =     $1747     READ TIME OUT BIT
+  33                  CLKRDT  =     $1746     READ TIME
+  34                  ;       ** MPU REG.  SAVX AREA IN PAGE 0 **
+  35                  PCL     =     $EF       PROGRAM CNT LOW
+  36                  PCH     =     $F0       PROGRAM CNT HI
+  37                  PREG    =     $F1       CURRENT STATUS REG
+  38                  SPUSER  =     $F2       CURRENT STACK POINTER
+  39                  ACC     =     $F3       ACCUMULATOR
+  40                  YREG    =     $F4       Y INDEX
+  41                  XREG    =     $F5       X INDEX
+  42                  ;       ** KIM FIXED AREA IN PAGE 0  **
+  43                  CHKHI   =     $F6
+  44                  CHKSUM  =     $F7
+  45                  INL     =     $F8       INPUT BUFFER
+  46                  INH     =     $F9       INPUT BUFFER
+  47                  POINTL  =     $FA       LSB OF OPEN CELL
+  48                  POINTH  =     $FB       MSB OF OPEN CELL
+  49                  TEMP    =     $FC
+  50                  TMPX    =     $FD
+  51                  CHAR    =     $FE
+  52                  MODE    =     $FF
+  53                  ;       ** KIM FIXED AREA IN PAGE 23 **
+  54                  CHKL    =     $17E7
+  55                  CHKH    =     $17E8     CHKSUM
+  56                  SAVX    =     $17E9     (3-BYTES)
+  57                  VEB     =     $17EC     VOLATILE EXEC BLOCK (6-B)
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 2
+LINE   LOC  INSTR           SOURCE CODE
+ 
+  58                  CNTL30  =     $17F2     TTY DELAY
+  59                  CNTH30  =     $17F3     TTY DELAY
+  60                  TIMH    =     $17F4
+  61                  SAL     =     $17F5     LOW STARTING ADDRESS
+  62                  SAH     =     $17F6     HI STARTING ADDRESS
+  63                  EAL     =     $17F7     LOW ENDING ADDRESS
+  64                  EAH     =     $17F8     HI ENDING ADDRESS
+  65                  ID      =     $17F9     TAPE PROGRAM ID NUMBER
+  66                  ;       ** INTERRUPT VECTORS **
+  67                  NMIV    =     $17FA     STOP VECTOR (STOP=1C00)
+  68                  RSTV    =     $17FC     RST VECTOR
+  69                  IRQV    =     $17FE     IRQ VECTOR (BRK=1C00)
+  71                  ;
+  72                  ;       ** DUMP MEMORY TO TAPE **
+  73  1800  A9 AD     DUMPT   LDA   #$AD      LOAD ABSOLUTE INST            1800
+  74  1802  8D EC 17          STA   VEB   
+  75  1805  20 32 19          JSR   INTVEB
+  76  1808  A9 27             LDA   #$27      TURN OFF DATAIN PB5
+  77  180A  8D 42 17          STA   SBD   
+  78  180D  A9 BF             LDA   #$BF      CONVERT PB7 TO OUTPUT
+  79  180F  8D 43 17          STA   PBDD  
+  80  1812  A2 64             LDX   #$64      100 CHARS 
+  81  1814  A9 16     DUMPT1  LDA   #$16      SYNC CHARS
+  82  1816  20 7A 19          JSR   OUTCHT
+  83  1819  CA                DEX         
+  84  181A  D0 F8             BNE   DUMPT1
+  85  181C  A9 2A             LDA   #$2A      START CHAR
+  86  181E  20 7A 19          JSR   OUTCHT
+  87  1821  AD F9 17          LDA   ID        OUTPUT ID 
+  88  1824  20 61 19          JSR   OUTBT 
+  89  1827  AD F5 17          LDA   SAL       OUTPUT STARTING
+  90  182A  20 5E 19          JSR   OUTBTC    ADDRESS 
+  91  182D  AD F6 17          LDA   SAH   
+  92  1830  20 5E 19          JSR   OUTBTC
+  93  1833  AD ED 17  DUMPT2  LDA   VEB+1     CHECK FOR LAST
+  94  1836  CD F7 17          CMP   EAL       DATA BYTE
+  95  1839  AD EE 17          LDA   VEB+2 
+  96  183C  ED F8 17          SBC   EAH   
+  97  183F  90 24             BCC   DUMPT4
+  98  1841  A9 2F             LDA   #'/       OUTPUT END-OF-DATA CHAR
+  99  1843  20 7A 19          JSR   OUTCHT
+ 100  1846  AD E7 17          LDA   CHKL      LAST BYTE HAS BEEN 
+ 101  1849  20 61 19          JSR   OUTBT     OUTPUT  NOW OUTPUT
+ 102  184C  AD E8 17          LDA   CHKH      CHKSUM
+ 103  184F  20 61 19          JSR   OUTBT 
+ 104  1852  A2 02             LDX   #$02      2 CHARS
+ 105  1854  A9 04     DUMPT3  LDA   #$04      EOT CHAR       
+ 106  1856  20 7A 19          JSR   OUTCHT 
+ 107  1859  CA                DEX          
+ 108  185A  D0 F8             BNE   DUMPT3    
+ 109  185C  A9 00             LDA   #$00      DISPLAY 0000
+ 110  185E  85 FA             STA   POINTL    FOR NORMAL EXIT
+ 111  1860  85 FB             STA   POINTH  
+ 112  1862  4C 4F 1C          JMP   START
+ 113  1865  20 EC 17  DUMPT4  JSR   VEB       DATA BYTE OUTPUT
+ 114  1868  20 5E 19          JSR   OUTBTC
+ 115  186B  20 EA 19          JSR   INCVEB
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 3
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 116  186E  4C 33 18          JMP   DUMPT2
+ 117                  ;
+ 118                  ;       ** LOAD MEMORY FROM TAPE **
+ 119                  ;
+ 120  1871  0F 19     TAB     .WORD LOAD12      'LOAD12' ADDRESS            1871
+ 122                  ;
+ 123  1873  A9 8D     LOADT   LDA   #$8D      INIT VOLATILE EXECUTION       1873
+ 124  1875  8D EC 17          STA   VEB       BLOCK WITH STA ABS.
+ 125  1878  20 32 19          JSR   INTVEB
+ 126  187B  A9 4C             LDA   #$4C      JUMP TYPE RTRN
+ 127  187D  8D EF 17          STA   VEB+3
+ 128  1880  AD 71 18          LDA   TAB  
+ 129  1883  8D F0 17          STA   VEB+4
+ 130  1886  AD 72 18          LDA   TAB+1
+ 131  1889  8D F1 17          STA   VEB+5
+ 132  188C  A9 07             LDA   #$07      RESET PB5=0 (DATA-IN)
+ 133  188E  8D 42 17          STA   SBD
+ 134  1891  A9 FF     SYNC    LDA   #$FF      CLEAR SAVX FOR SYNC CHAR      1891
+ 135  1893  8D E9 17          STA   SAVX 
+ 136  1896  20 41 1A  SYNC1   JSR   RDBIT     GET A BIT        
+ 137  1899  4E E9 17          LSR   SAVX      SHIFT BIT INTO CHAR
+ 138  189C  0D E9 17          ORA   SAVX
+ 139  189F  8D E9 17          STA   SAVX
+ 140  18A2  AD E9 17          LDA   SAVX      GET NEW CHAR
+ 141  18A5  C9 16             CMP   #$16      SYNC CHAR
+ 142  18A7  D0 ED             BNE   SYNC1
+ 143  18A9  A2 0A             LDX   #$0A      TEST FOR 10 SYNC CHARS
+ 144  18AB  20 24 1A  SYNC2   JSR   RDCHT                      
+ 145  18AE  C9 16             CMP   #$16  
+ 146  18B0  D0 DF             BNE   SYNC      IF NOT 10 CHAR, RE-SYNC
+ 147  18B2  CA                DEX     
+ 148  18B3  D0 F6             BNE   SYNC2
+ 149  18B5  20 24 1A  LOADT4  JSR   RDCHT     LOOK FOR START OF
+ 150  18B8  C9 2A             CMP   #$2A      DATA CHAR
+ 151  18BA  F0 06             BEQ   LOAD11
+ 152  18BC  C9 16             CMP   #$16      IF NOT , SHOULD BE SYNC
+ 153  18BE  D0 D1             BNE   SYNC
+ 154  18C0  F0 F3             BEQ   LOADT4
+ 155  18C2  20 F3 19  LOAD11  JSR   RDBYT     READ ID FROM TAPE
+ 156  18C5  CD F9 17          CMP   ID        COMPARE WITH REQUESTED ID
+ 157  18C8  F0 0D             BEQ   LOADT5
+ 158  18CA  AD F9 17          LDA   ID        DEFAULT 00, READ RECORD
+ 159  18CD  C9 00             CMP   #$00      ANYWAY
+ 160  18CF  F0 06             BEQ   LOADT5
+ 161  18D1  C9 FF             CMP   #$FF      DEFAULT FF, IGNORE SA ON
+ 162  18D3  F0 17             BEQ   LOADT6    TAPE
+ 163  18D5  D0 9C             BNE   LOADT
+ 164  18D7  20 F3 19  LOADT5  JSR   RDBYT     GET SA FROM TAPE
+ 165  18DA  20 4C 19          JSR   CHKT
+ 166  18DD  8D ED 17          STA   VEB+1     SAVX IN VEB+1,2
+ 167  18E0  20 F3 19          JSR   RDBYT
+ 168  18E3  20 4C 19          JSR   CHKT
+ 169  18E6  8D EE 17          STA   VEB+2
+ 170  18E9  4C F8 18          JMP   LOADT7
+ 171                  ;
+ 172  18EC  20 F3 19  LOADT6  JSR   RDBYT     GET SA BUT IGNORE             18EC
+ 173  18EF  20 4C 19          JSR   CHKT
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 4
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 174  18F2  20 F3 19          JSR   RDBYT
+ 175  18F5  20 4C 19          JSR   CHKT
+ 176  18F8  A2 02     LOADT7  LDX   #$02      GET 2 CHARS 
+ 177  18FA  20 24 1A  LOAD13  JSR   RDCHT     GET CHAR (X)
+ 178  18FD  C9 2F             CMP   #$2F      LOOK FOR LAST CHAR
+ 179  18FF  F0 14             BEQ   LOADT8
+ 180  1901  20 00 1A          JSR   PACKT     CONVERT TO HEX
+ 181  1904  D0 23             BNE   LOADT9    Y=1 NON-HEX CHAR
+ 182  1906  CA                DEX                         
+ 183  1907  D0 F1             BNE   LOAD13
+ 184  1909  20 4C 19          JSR   CHKT      COMPARE CHECKSUM
+ 185  190C  4C EC 17          JMP   VEB       SAVX DATA IN MEMORY
+ 186  190F  20 EA 19  LOAD12  JSR   INCVEB    INCR DATA POINTER
+ 187  1912  4C F8 18          JMP   LOADT7
+ 188                  ;
+ 189  1915  20 F3 19  LOADT8  JSR   RDBYT     END OF DATA, COMPARE CHKSUM   1915
+ 190  1918  CD E7 17          CMP   CHKL
+ 191  191B  D0 0C             BNE   LOADT9
+ 192  191D  20 F3 19          JSR   RDBYT
+ 193  1920  CD E8 17          CMP   CHKH
+ 194  1923  D0 04             BNE   LOADT9
+ 195  1925  A9 00             LDA   #$00      NORMAL EXIT
+ 196  1927  F0 02             BEQ   LOAD10
+ 197  1929  A9 FF     LOADT9  LDA   #$FF      ERROR EXIT 
+ 198  192B  85 FA     LOAD10  STA   POINTL               
+ 199  192D  85 FB             STA   POINTH
+ 200  192F  4C 4F 1C          JMP   START
+ 201                  ;
+ 202                  ;       ** SUBROUTINES BELOW **
+ 203  1932  AD F5 17  INTVEB  LDA   SAL       MOVE SA TO VEB+1,2            1932
+ 204  1935  8D ED 17          STA   VEB+1
+ 205  1938  AD F6 17          LDA   SAH
+ 206  193B  8D EE 17          STA   VEB+2
+ 207  193E  A9 60             LDA   #$60      RTS INST
+ 208  1940  8D EF 17          STA   VEB+3
+ 209  1943  A9 00             LDA   #$00      CLEAR CHKSUM AREA
+ 210  1945  8D E7 17          STA   CHKL
+ 211  1948  8D E8 17          STA   CHKH
+ 212  194B  60                RTS
+ 213                  ;       ** COMPUTE CHKSUM FOR TAPE LOAD **
+ 214  194C  A8        CHKT    TAY                                           194C
+ 215  194D  18                CLC     
+ 216  194E  6D E7 17          ADC   CHKL
+ 217  1951  8D E7 17          STA   CHKL
+ 218  1954  AD E8 17          LDA   CHKH
+ 219  1957  69 00             ADC   #$00
+ 220  1959  8D E8 17          STA   CHKH
+ 221  195C  98                TYA       
+ 222  195D  60                RTS 
+ 223                  ;       ** OUTPUT ONE BYTE **
+ 224  195E  20 4C 19  OUTBTC  JSR   CHKT      COMPARE CHKSUM                195E
+ 225  1961  A8        OUTBT   TAY             SAVX DATA BYTE
+ 226  1962  4A                LSR   A         SHIFT OFF LSD
+ 227  1963  4A                LSR   A
+ 228  1964  4A                LSR   A
+ 229  1965  4A                LSR   A
+ 230  1966  20 6F 19          JSR   HEXOUT    OUTPUT MSD
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 5
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 231  1969  98                TYA 
+ 232  196A  20 6F 19          JSR   HEXOUT    OUTPUT LSD
+ 233  196D  98                TYA  
+ 234  196E  60                RTS 
+ 235                  ;       ** CONVERT LSD OF A TO ASCII, OUTPUT TO TAPE **
+ 236  196F  29 0F     HEXOUT  AND   #$0F                                    196F
+ 237  1971  C9 0A             CMP   #$0A      
+ 238  1973  18                CLC   
+ 239  1974  30 02             BMI   HEX1
+ 240  1976  69 07             ADC   #$07
+ 241  1978  69 30     HEX1    ADC   #$30
+ 242                  ;       ** OUTPUT TO TAPE ONE ASCII CHAR **
+ 243  197A  8E E9 17  OUTCHT  STX   SAVX                                    197A
+ 244  197D  8C EA 17          STY   SAVX+1
+ 245  1980  A0 08             LDY   #$08      START BIT
+ 246  1982  20 9E 19  CHT1    JSR   ONE                  
+ 247  1985  4A                LSR   A         GET DATA BIT
+ 248  1986  B0 06             BCS   CHT2 
+ 249  1988  20 9E 19          JSR   ONE       DATA BIT=1
+ 250  198B  4C 91 19          JMP   CHT3
+ 251  198E  20 C4 19  CHT2    JSR   ZRO       DATA BIT=0 
+ 252  1991  20 C4 19  CHT3    JSR   ZRO                  
+ 253  1994  88                DEY
+ 254  1995  D0 EB             BNE   CHT1
+ 255  1997  AE E9 17          LDX   SAVX
+ 256  199A  AC EA 17          LDY   SAVX+1
+ 257  199D  60                RTS
+ 258                  ;       ** OUTPUT 1 TO TAPE, 9 PULSES, 138 US EACH **
+ 259  199E  A2 09     ONE     LDX   #$09                                    199E
+ 260  19A0  48                PHA             SAVX A
+ 261  19A1  2C 47 17  ONE1    BIT   CLKRDI    WAIT FOR TIME OUT             19A1
+ 262  19A4  10 FB             BPL   ONE1
+ 263  19A6  A9 7E             LDA   #126
+ 264  19A8  8D 44 17          STA   CLK1T
+ 265  19AB  A9 A7             LDA   #$A7 
+ 266  19AD  8D 42 17          STA   SBD       SET PB7 = 1
+ 267  19B0  2C 47 17  ONE2    BIT   CLKRDI                                  19B0
+ 268  19B3  10 FB             BPL   ONE2 
+ 269  19B5  A9 7E             LDA   #126
+ 270  19B7  8D 44 17          STA   CLK1T
+ 271  19BA  A9 27             LDA   #$27 
+ 272  19BC  8D 42 17          STA   SBD       RESET PB7=0
+ 273  19BF  CA                DEX   
+ 274  19C0  D0 DF             BNE   ONE1
+ 275  19C2  68                PLA  
+ 276  19C3  60                RTS  
+ 277                  ;       ** OUTPUT 0 TO TAPE, 6 PULSES, 207 US EACH **
+ 278  19C4  A2 06     ZRO     LDX   #$06                                    19C4
+ 279  19C6  48                PHA             SAVX A
+ 280  19C7  2C 47 17  ZRO1    BIT   CLKRDI                                  19C7
+ 281  19CA  10 FB             BPL   ZRO1 
+ 282  19CC  A9 C3             LDA   #$C3 
+ 283  19CE  8D 44 17          STA   CLK1T
+ 284  19D1  A9 A7             LDA   #$A7 
+ 285  19D3  8D 42 17          STA   SBD       SET PB7=1
+ 286  19D6  2C 47 17  ZRO2    BIT   CLKRDI
+ 287  19D9  10 FB             BPL   ZRO2 
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 6
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 288  19DB  A9 C3             LDA   #195 
+ 289  19DD  8D 44 17          STA   CLK1T
+ 290  19E0  A9 27             LDA   #$27 
+ 291  19E2  8D 42 17          STA   SBD       RESET PB7=0
+ 292  19E5  CA                DEX        
+ 293  19E6  D0 DF             BNE   ZRO1
+ 294  19E8  68                PLA             RESTORE A
+ 295  19E9  60                RTS
+ 296                  ;       ** SUB TO INC VEB+1,2 **
+ 297  19EA  EE ED 17  INCVEB  INC   VEB+1                                   19EA
+ 298  19ED  D0 03             BNE   INCVE1
+ 299  19EF  EE EE 17          INC   VEB+2
+ 300  19F2  60        INCVE1  RTS     
+ 301                  ;       ** SUB TO READ BYTE FROM TAPE **
+ 302  19F3  20 24 1A  RDBYT   JSR   RDCHT                                   19F3
+ 303  19F6  20 00 1A          JSR   PACKT
+ 304  19F9  20 24 1A          JSR   RDCHT
+ 305  19FC  20 00 1A          JSR   PACKT
+ 306  19FF  60                RTS
+ 307                  ;       ** PACK A=ASCII INTO SAVX AS HEX DATA **
+ 308  1A00  C9 30     PACKT   CMP   #$30                                    1A00
+ 309  1A02  30 1E             BMI   PACKT3
+ 310  1A04  C9 47             CMP   #$47
+ 311  1A06  10 1A             BPL   PACKT3
+ 312  1A08  C9 40             CMP   #$40  
+ 313  1A0A  30 03             BMI   PACKT1
+ 314  1A0C  18                CLC         
+ 315  1A0D  69 09             ADC   #$09  
+ 316  1A0F  2A        PACKT1  ROL   A
+ 317  1A10  2A                ROL   A
+ 318  1A11  2A                ROL   A
+ 319  1A12  2A                ROL   A
+ 320  1A13  A0 04             LDY   #$04
+ 321  1A15  2A        PACKT2  ROL   A
+ 322  1A16  2E E9 17          ROL   SAVX
+ 323  1A19  88                DEY          
+ 324  1A1A  D0 F9             BNE   PACKT2
+ 325  1A1C  AD E9 17          LDA   SAVX
+ 326  1A1F  A0 00             LDY   #$00      Y=0 VALID HEX CHAR
+ 327  1A21  60                RTS
+ 328  1A22  C8        PACKT3  INY             Y=1 NOT HEX
+ 329  1A23  60                RTS
+ 330                  ;       ** GET 1 CHAR FROM TAPE AND RETURN WITH 
+ 331                  ;          CHAR IN A.  USE SAVX+1 TO ASM CHAR  **
+ 332  1A24  8E EB 17  RDCHT   STX   SAVX+2                                  1A24
+ 333  1A27  A2 08             LDX   #$08      READ 8 BITS
+ 334  1A29  20 41 1A  RDCHT1  JSR   RDBIT     GET NEXT DATA BIT
+ 335  1A2C  4E EA 17          LSR   SAVX+1    RIGHT SHIFT CHAR
+ 336  1A2F  0D EA 17          ORA   SAVX+1    OR IN SIGN BIT
+ 337  1A32  8D EA 17          STA   SAVX+1    REPLACE CHAR
+ 338  1A35  CA                DEX          
+ 339  1A36  D0 F1             BNE   RDCHT1
+ 340  1A38  AD EA 17          LDA   SAVX+1    MOVE CHAR INTO A
+ 341  1A3B  2A                ROL   A         SHIFT OFF PARITY
+ 342  1A3C  4A                LSR   A
+ 343  1A3D  AE EB 17          LDX   SAVX+2
+ 344  1A40  60                RTS
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 7
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 345                  ;       ** THIS SUB GETS ONE BIT FROM TAPE AND
+ 346                  ;          RETURNS IT IN SIGN OF A  **
+ 347  1A41  2C 42 17  RDBIT   BIT   SBD       WAIT FOR END OF START BIT     1A41
+ 348  1A44  10 FB             BPL   RDBIT
+ 349  1A46  AD 46 17          LDA   CLKRDT    GET START BIT TIME
+ 350  1A49  A0 FF             LDY   #$FF      A=256-T1    
+ 351  1A4B  8C 46 17          STY   CLK64T    SET UP TIMER
+ 352  1A4E  A0 14             LDY   #$14  
+ 353  1A50  88        RDBIT3  DEY             DELAY 100 MICRO SEC
+ 354  1A51  D0 FD             BNE   RDBIT3
+ 355  1A53  2C 42 17  RDBIT2  BIT   SBD
+ 356  1A56  30 FB             BMI   RDBIT2    WAIT FOR NEXT START BIT
+ 357  1A58  38                SEC   
+ 358  1A59  ED 46 17          SBC   CLKRDT    (256-T1)-(256-T2)=T2-T1
+ 359  1A5C  A0 FF             LDY   #$FF
+ 360  1A5E  8C 46 17          STY   CLK64T    SET UP TIMER FOR NEXT BIT
+ 361  1A61  A0 07             LDY   #$07
+ 362  1A63  88        RDBIT4  DEY             DELAY 50 MICROSEC
+ 363  1A64  D0 FD             BNE   RDBIT4
+ 364  1A66  49 FF             EOR   #$FF      COMPLEMENT SIGN OF A
+ 365  1A68  29 80             AND   #$80      MASK ALL EXCEPT SIGN
+ 366  1A6A  60                RTS 
+ 367                  ;       ** PLLCAL OUTPUT 166 MICROSEC (6024 HZ)
+ 368                  ;          PULSE STRING 
+ 369  1A6B  A9 27     PLLCAL  LDA   #$27                                    1A6B
+ 370  1A6D  8D 42 17          STA   SBD       TURN OFF DATIN PB5=1
+ 371  1A70  A9 BF             LDA   #$BF      CONVERT PB7 TO OUTPUT
+ 372  1A72  8D 43 17          STA   PBDD
+ 373  1A75  2C 47 17  PLL1    BIT   CLKRDI
+ 374  1A78  10 FB             BPL   PLL1  
+ 375  1A7A  A9 9A             LDA   #154      WAIT 166 MICROSEC
+ 376  1A7C  8D 44 17          STA   CLK1T
+ 377  1A7F  A9 A7             LDA   #$A7      OUTPUT PB7=1
+ 378  1A81  8D 42 17          STA   SBD
+ 379  1A84  2C 47 17  PLL2    BIT   CLKRDI
+ 380  1A87  10 FB             BPL   PLL2 
+ 381  1A89  A9 9A             LDA   #154
+ 382  1A8B  8D 44 17          STA   CLK1T
+ 383  1A8E  A9 27             LDA   #$27      PB7=0
+ 384  1A90  8D 42 17          STA   SBD
+ 385  1A93  4C 75 1A          JMP   PLL1
+ 386                  ;
+ 387                  ;       ** INTERRUPTS **
+ 388                          *=    $1BFA
+ 389  1BFA  6B 1A     NMIP27  .WORD PLLCAL
+ 391  1BFC  6B 1A     RSTP27  .WORD PLLCAL
+ 393  1BFE  6B 1A     IRQP27  .WORD PLLCAL
+ 395                  ;
+ 396                  ;******************* 6530-002 I.C. *****************
+ 397                  ;       ** COPYRIGHT MOS TECHNOLOGY INC.
+ 398                  ;          DATE OCT 13, 1975 REV E
+ 399                  ;
+ 400                  ;       ** KIM **
+ 401                  ;         TTY INTERFACE   6530-002
+ 402                  ;         KEYBOARD INTERFACE,
+ 403                  ;         7-SEGMENT 6-DIGIT DISPLAY
+ 404                  ;
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 8
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 405                  ;       TTY COMANDS:
+ 406                  ;         G    GOEXEC
+ 407                  ;         CR   OPEN NEXT CELL
+ 408                  ;         LF   OPEN PREVIOUS CELL
+ 409                  ;         .    MODIFY OPEN CELL
+ 410                  ;         SP   OPEN NEW CELL
+ 411                  ;         L    LOAD (OBJECT FORMAT)
+ 412                  ;         Q    DUMP FROM OPEN CELL ADDR TO HI LIMIT
+ 413                  ;         RO   RUB OUT - RETURN TO START KIM
+ 414                  ;               (ALL ILLEGAL CHARS ARE IGNORED)
+ 415                  ;
+ 416                  ;       KEYBOARD COMMANDS:
+ 417                  ;         ADDR  SETS MODE TO MODIFY CELL ADDRESS
+ 418                  ;         DATA  SETS MODE TO MODIFY DATA IN OPEN CELL
+ 419                  ;         STEP  INCREMENTS TO NEXT CELL
+ 420                  ;         RST   SYSTEM RESET
+ 421                  ;         RUN   GOEXEC
+ 422                  ;         STOP  $1C00 CAN BE LOADED INTO NMIV TO USE
+ 423                  ;         PC    DISPLAY PC (PROGRAM COUNTER)
+ 424                  ;         
+ 425                          *=      $1C00
+ 426  1C00  85 F3     SAVE    STA   ACC       KIM ENTRY VIA STOP (NMI)      1C00
+ 427  1C02  68                PLA             OR BRK (IRQ)
+ 428  1C03  85 F1             STA   PREG
+ 429  1C05  68                PLA             KIM ENTRY VIA JSR (A LOST)    1C05
+ 430  1C06  85 EF             STA   PCL
+ 431  1C08  85 FA             STA   POINTL
+ 432  1C0A  68                PLA         
+ 433  1C0B  85 F0             STA   PCH
+ 434  1C0D  85 FB             STA   POINTH
+ 435  1C0F  84 F4             STY   YREG
+ 436  1C11  86 F5             STX   XREG
+ 437  1C13  BA                TSX   
+ 438  1C14  86 F2             STX   SPUSER
+ 439  1C16  20 88 1E          JSR   INITS
+ 440  1C19  4C 4F 1C          JMP   START
+ 441                  ;
+ 442  1C1C  6C FA 17  NMIT    JMP   (NMIV)    NON-MASKABLE INTERRUPT TRAP   1C1C
+ 443  1C1F  6C FE 17  IRQT    JMP   (IRQV)    INTERRUPT TRAP                1C1F
+ 444  1C22  A2 FF     RST     LDX   #$FF      KIM ENTRY VIA RST             1C22
+ 445  1C24  9A                TXS
+ 446  1C25  86 F2             STX   SPUSER
+ 447  1C27  20 88 1E          JSR   INITS
+ 448  1C2A  A9 FF             LDA   #$FF      COUNT START BIT
+ 449  1C2C  8D F3 17          STA   CNTH30    ZERO CNTH30
+ 450  1C2F  A9 01             LDA   #$01      MASK HI ORDER BITS
+ 451  1C31  2C 40 17  DET1    BIT   SAD       TEST                          1C31
+ 452  1C34  D0 19             BNE   START     KEYBD SSW TEST
+ 453  1C36  30 F9             BMI   DET1      START BIT TEST
+ 454  1C38  A9 FC             LDA   #$FC
+ 455  1C3A  18        DET3    CLC             THIS LOOP COUNTS              1C3A
+ 456  1C3B  69 01             ADC   #$01      THE START BIT TIME
+ 457  1C3D  90 03             BCC   DET2
+ 458  1C3F  EE F3 17          INC   CNTH30
+ 459  1C42  AC 40 17  DET2    LDY   SAD       CHECK FOR END OF START BIT    1C42
+ 460  1C45  10 F3             BPL   DET3
+ 461  1C47  8D F2 17          STA   CNTL30
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 9
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 462  1C4A  A2 08             LDX   #$08
+ 463  1C4C  20 6A 1E          JSR   GET5      GET REST OF THE CHAR, TEST CHAR
+ 464                  ;       ** MAKE TTY/KB SELECTION **
+ 465  1C4F  20 8C 1E  START   JSR   INIT1                                   1C4F
+ 466  1C52  A9 01             LDA   #$01
+ 467  1C54  2C 40 17          BIT   SAD
+ 468  1C57  D0 1E             BNE   TTYKB
+ 469  1C59  20 2F 1E          JSR   CRLF      PRT CR LF
+ 470  1C5C  A2 0A             LDX   #$0A      TYPE OUT KIM
+ 471  1C5E  20 31 1E          JSR   PRTST
+ 472  1C61  4C AF 1D          JMP   SHOW1
+ 473                  ;
+ 474  1C64  A9 00     CLEAR   LDA   #$00
+ 475  1C66  85 F8             STA   INL       CLEAR INPUT BUFFER
+ 476  1C68  85 F9             STA   INH
+ 477  1C6A  20 5A 1E  READ    JSR   GETCH     GET CHAR
+ 478  1C6D  C9 01             CMP   #$01      
+ 479  1C6F  F0 06             BEQ   TTYKB
+ 480  1C71  20 AC 1F          JSR   PACK
+ 481  1C74  4C DB 1D          JMP   SCAN
+ 482                  ;       ** MAIN ROUTINE FOR KEYBOARD AND DISPLAY **
+ 483  1C77  20 19 1F  TTYKB   JSR   SCAND     IF A=0 NO KEY                 1C77
+ 484  1C7A  D0 D3             BNE   START
+ 485  1C7C  A9 01     TTYKB1  LDA   #$01
+ 486  1C7E  2C 40 17          BIT   SAD 
+ 487  1C81  F0 CC             BEQ   START
+ 488  1C83  20 19 1F          JSR   SCAND
+ 489  1C86  F0 F4             BEQ   TTYKB1
+ 490  1C88  20 19 1F          JSR   SCAND
+ 491  1C8B  F0 EF             BEQ   TTYKB1
+ 492  1C8D  20 6A 1F          JSR   GETKEY
+ 493  1C90  C9 15             CMP   #$15  
+ 494  1C92  10 BB             BPL   START
+ 495  1C94  C9 14             CMP   #$14
+ 496  1C96  F0 44             BEQ   PCCMD     DISPLAY PC
+ 497  1C98  C9 10             CMP   #$10      ADDR MODE=1
+ 498  1C9A  F0 2C             BEQ   ADDRM
+ 499  1C9C  C9 11             CMP   #$11      DATA MODE=1
+ 500  1C9E  F0 2C             BEQ   DATAM
+ 501  1CA0  C9 12             CMP   #$12      STEP
+ 502  1CA2  F0 2F             BEQ   STEP
+ 503  1CA4  C9 13             CMP   #$13      RUN
+ 504  1CA6  F0 31             BEQ   GOV
+ 505  1CA8  0A                ASL   A         SHIFT CHAR INTO HIGH
+ 506  1CA9  0A                ASL   A         ORDER NIBBLE
+ 507  1CAA  0A                ASL   A
+ 508  1CAB  0A                ASL   A
+ 509  1CAC  85 FC             STA   TEMP      STORE IN TEMP
+ 510  1CAE  A2 04             LDX   #$04
+ 511  1CB0  A4 FF     DATA1   LDY   MODE      TEST MODE 1=ADDR
+ 512  1CB2  D0 0A             BNE   ADDR      MODE=0 DATA
+ 513  1CB4  B1 FA             LDA   (POINTL),Y   GET DATA
+ 514  1CB6  06 FC             ASL   TEMP      SHIFT CHAR
+ 515  1CB8  2A                ROL   A         SHIFT DATA
+ 516  1CB9  91 FA             STA   (POINTL),Y  STORE OUT DATA
+ 517  1CBB  4C C3 1C          JMP   DATA2
+ 518                  ;
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 10
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 519  1CBE  0A        ADDR    ASL   A         SHIFT CHAR
+ 520  1CBF  26 FA             ROL   POINTL    SHIFT ADDR
+ 521  1CC1  26 FB             ROL   POINTH    SHIFT ADDR HI
+ 522  1CC3  CA        DATA2   DEX   
+ 523  1CC4  D0 EA             BNE   DATA1     DO 4 TIMES
+ 524  1CC6  F0 08             BEQ   DATAM2    EXIT HERE
+ 525  1CC8  A9 01     ADDRM   LDA   #$01
+ 526  1CCA  D0 02             BNE   DATAM1
+ 527  1CCC  A9 00     DATAM   LDA   #$00 
+ 528  1CCE  85 FF     DATAM1  STA   MODE 
+ 529  1CD0  4C 4F 1C  DATAM2  JMP   START
+ 530                  ;
+ 531  1CD3  20 63 1F  STEP    JSR   INCPT                                   1CD3
+ 532  1CD6  4C 4F 1C          JMP   START
+ 533                  ;
+ 534  1CD9  4C C8 1D  GOV     JMP   GOEXEC                                  1CD9
+ 535                  ;       ** DISPLAY PC BY MOVING PC TO POINT **
+ 536  1CDC  A5 EF     PCCMD   LDA   PCL                                     1CDC
+ 537  1CDE  85 FA             STA   POINTL
+ 538  1CE0  A5 F0             LDA   PCH
+ 539  1CE2  85 FB             STA   POINTH
+ 540  1CE4  4C 4F 1C          JMP   START
+ 541                  ;       ** LOAD PAPER TAPE FROM TTY **
+ 542  1CE7  20 5A 1E  LOAD    JSR   GETCH     LOOK FOR FIRST CHAR           1CE7
+ 543  1CEA  C9 3B             CMP   #$3B      SEMICOLON
+ 544  1CEC  D0 F9             BNE   LOAD
+ 545  1CEE  A9 00             LDA   #$00
+ 546  1CF0  85 F7             STA   CHKSUM
+ 547  1CF2  85 F6             STA   CHKHI
+ 548  1CF4  20 9D 1F          JSR   GETBYT    GET BYTE COUNT
+ 549  1CF7  AA                TAX             SAVE IN X INDEX
+ 550  1CF8  20 91 1F          JSR   CHK       COMPUTE CHECKSUM
+ 551  1CFB  20 9D 1F          JSR   GETBYT    GET ADDRESS HI
+ 552  1CFE  85 FB             STA   POINTH
+ 553  1D00  20 91 1F          JSR   CHK
+ 554  1D03  20 9D 1F          JSR   GETBYT    GET ADDRESS LO
+ 555  1D06  85 FA             STA   POINTL
+ 556  1D08  20 91 1F          JSR   CHK
+ 557  1D0B  8A                TXA             IF CNT=0 DONT
+ 558  1D0C  F0 0F             BEQ   LOAD3     GET ANY DATA
+ 559  1D0E  20 9D 1F  LOAD2   JSR   GETBYT    GET DATA
+ 560  1D11  91 FA             STA   (POINTL),Y  STORE DATA
+ 561  1D13  20 91 1F          JSR   CHK
+ 562  1D16  20 63 1F          JSR   INCPT     NEXT ADDRESS
+ 563  1D19  CA                DEX    
+ 564  1D1A  D0 F2             BNE   LOAD2
+ 565  1D1C  E8                INX             X=1 DATA RCD X=0 LAST RCD
+ 566  1D1D  20 9D 1F  LOAD3   JSR   GETBYT    COMPARE CHKSUM
+ 567  1D20  C5 F6             CMP   CHKHI
+ 568  1D22  D0 17             BNE   LOADE1
+ 569  1D24  20 9D 1F          JSR   GETBYT
+ 570  1D27  C5 F7             CMP   CHKSUM
+ 571  1D29  D0 13             BNE   LOADER
+ 572  1D2B  8A                TXA             X=0 LAST RECORD
+ 573  1D2C  D0 B9             BNE   LOAD
+ 574  1D2E  A2 0C             LDX   #$0C      X-OFF KIM
+ 575  1D30  A9 27     LOAD8   LDA   #$27
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 11
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 576  1D32  8D 42 17          STA   SBD       DISABLE DATA IN
+ 577  1D35  20 31 1E          JSR   PRTST
+ 578  1D38  4C 4F 1C          JMP   START
+ 579                  ;
+ 580  1D3B  20 9D 1F  LOADE1  JSR   GETBYT    DUMMY
+ 581  1D3E  A2 11     LOADER  LDX   #$11      X-OFF ERR KIM
+ 582  1D40  D0 EE             BNE   LOAD8
+ 583                  ;       ** DUMP TO TTY FROM OPEN CELL ADDRESS TO 
+ 584                  ;          LIMHL, LIMHH **
+ 585  1D42  A9 00     DUMP    LDA   #$00                                    1D42
+ 586  1D44  85 F8             STA   INL
+ 587  1D46  85 F9             STA   INH       CLEAR RECORD COUNT
+ 588  1D48  A9 00     DUMP0   LDA   #$00
+ 589  1D4A  85 F6             STA   CHKHI     CLEAR CHKSUM
+ 590  1D4C  85 F7             STA   CHKSUM
+ 591  1D4E  20 2F 1E          JSR   CRLF      PRINT CR LF
+ 592  1D51  A9 3B             LDA   #$3B      PRINT SEMICOLON
+ 593  1D53  20 A0 1E          JSR   OUTCH
+ 594  1D56  A5 FA             LDA   POINTL    TEST POINT GT OR ET
+ 595  1D58  CD F7 17          CMP   EAL       HI LIMIT GOTO EXIT
+ 596  1D5B  A5 FB             LDA   POINTH
+ 597  1D5D  ED F8 17          SBC   EAH
+ 598  1D60  90 18             BCC   DUMP4
+ 599  1D62  A9 00             LDA   #$00      PRINT LAST RECORD
+ 600  1D64  20 3B 1E          JSR   PRTBYT    0 BYTES
+ 601  1D67  20 CC 1F          JSR   OPEN
+ 602  1D6A  20 1E 1E          JSR   PRTPNT
+ 603  1D6D  A5 F6             LDA   CHKHI     PRINT CHKSUM
+ 604  1D6F  20 3B 1E          JSR   PRTBYT    FOR LAST RECORD
+ 605  1D72  A5 F7             LDA   CHKSUM
+ 606  1D74  20 3B 1E          JSR   PRTBYT
+ 607  1D77  4C 64 1C          JMP   CLEAR
+ 608                  ;
+ 609  1D7A  A9 18     DUMP4   LDA   #$18      PRINT 24 BYTE COUNT           1D7A
+ 610  1D7C  AA                TAX             SAVE AS INDEX
+ 611  1D7D  20 3B 1E          JSR   PRTBYT
+ 612  1D80  20 91 1F          JSR   CHK
+ 613  1D83  20 1E 1E          JSR   PRTPNT
+ 614  1D86  A0 00     DUMP2   LDY   #$00      PRINT 24 BYTES
+ 615  1D88  B1 FA             LDA   (POINTL),Y  GET DATA
+ 616  1D8A  20 3B 1E          JSR   PRTBYT    PRINT DATA
+ 617  1D8D  20 91 1F          JSR   CHK       COMPUTE CHKSUM
+ 618  1D90  20 63 1F          JSR   INCPT     INCREMENT POINT
+ 619  1D93  CA                DEX
+ 620  1D94  D0 F0             BNE   DUMP2
+ 621  1D96  A5 F6             LDA   CHKHI     PRINT CHKSUM
+ 622  1D98  20 3B 1E          JSR   PRTBYT
+ 623  1D9B  A5 F7             LDA   CHKSUM
+ 624  1D9D  20 3B 1E          JSR   PRTBYT
+ 625  1DA0  E6 F8             INC   INL       INCR RECORD COUNT
+ 626  1DA2  D0 02             BNE   DUMP3
+ 627  1DA4  E6 F9             INC   INH
+ 628  1DA6  4C 48 1D  DUMP3   JMP   DUMP0
+ 629                  ;
+ 630  1DA9  20 CC 1F  SPACE   JSR   OPEN      OPEN NEW CELL                 1DA9
+ 631  1DAC  20 2F 1E  SHOW    JSR   CRLF      PRINT CR LF
+ 632  1DAF  20 1E 1E  SHOW1   JSR   PRTPNT
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 12
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 633  1DB2  20 9E 1E          JSR   OUTSP     PRINT SPACE
+ 634  1DB5  A0 00             LDY   #$00      PRINT DATA SPECIFIED
+ 635  1DB7  B1 FA             LDA   (POINTL),Y  BY POINT AD=LDA EXT
+ 636  1DB9  20 3B 1E          JSR   PRTBYT
+ 637  1DBC  20 9E 1E          JSR   OUTSP     PRINT SPACE
+ 638  1DBF  4C 64 1C          JMP   CLEAR
+ 639                  ;
+ 640  1DC2  20 63 1F  RTRN    JSR   INCPT     OPEN NEXT CELL                1DC2
+ 641  1DC5  4C AC 1D          JMP   SHOW
+ 642                  ;
+ 643  1DC8  A6 F2     GOEXEC  LDX   SPUSER                                  1DC8
+ 644  1DCA  9A                TXS   
+ 645  1DCB  A5 FB             LDA   POINTH    PROGRAM RUNS FROM
+ 646  1DCD  48                PHA             OPEN CELL ADDRESS
+ 647  1DCE  A5 FA             LDA   POINTL
+ 648  1DD0  48                PHA      
+ 649  1DD1  A5 F1             LDA   PREG
+ 650  1DD3  48                PHA       
+ 651  1DD4  A6 F5             LDX   XREG      RESTORE REGS
+ 652  1DD6  A4 F4             LDY   YREG
+ 653  1DD8  A5 F3             LDA   ACC
+ 654  1DDA  40                RTI
+ 655                  ;
+ 656  1DDB  C9 20     SCAN    CMP   #$20      OPEN CELL
+ 657  1DDD  F0 CA             BEQ   SPACE
+ 658  1DDF  C9 7F             CMP   #$7F      RUB OUT (KIM)
+ 659  1DE1  F0 1B             BEQ   STV
+ 660  1DE3  C9 0D             CMP   #$0D      NEXT CELL
+ 661  1DE5  F0 DB             BEQ   RTRN
+ 662  1DE7  C9 0A             CMP   #$0A      PREV CELL
+ 663  1DE9  F0 1C             BEQ   FEED
+ 664  1DEB  C9 2E             CMP   #'.       MODIFY CELL
+ 665  1DED  F0 26             BEQ   MODIFY
+ 666  1DEF  C9 47             CMP   #'G       GO EXEC
+ 667  1DF1  F0 D5             BEQ   GOEXEC
+ 668  1DF3  C9 51             CMP   #'Q       DUMP FROM OPEN CELL TO HI LIMIT
+ 669  1DF5  F0 0A             BEQ   DUMPV
+ 670  1DF7  C9 4C             CMP   #'L       LOAD TAPE
+ 671  1DF9  F0 09             BEQ   LOADV
+ 672  1DFB  4C 6A 1C          JMP   READ      IGNORE ILLEGAL CHAR
+ 673                  ;
+ 674  1DFE  4C 4F 1C  STV     JMP   START
+ 675  1E01  4C 42 1D  DUMPV   JMP   DUMP
+ 676  1E04  4C E7 1C  LOADV   JMP   LOAD 
+ 677                  ;
+ 678  1E07  38        FEED    SEC                                           1E07
+ 679  1E08  A5 FA             LDA   POINTL    DEC DOUBLE BYTE
+ 680  1E0A  E9 01             SBC   #$01      AT POINTL AND POINTH
+ 681  1E0C  85 FA             STA   POINTL
+ 682  1E0E  B0 02             BCS   FEED1
+ 683  1E10  C6 FB             DEC   POINTH
+ 684  1E12  4C AC 1D  FEED1   JMP   SHOW
+ 685                  ;
+ 686  1E15  A0 00     MODIFY  LDY   #$00      GET CONTENTS OF INPUT BUFF 
+ 687  1E17  A5 F8             LDA   INL       INL AND STORE IN LOC
+ 688  1E19  91 FA             STA   (POINTL),Y  SPECIFIED BY POINT
+ 689  1E1B  4C C2 1D          JMP   RTRN 
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 13
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 690                  ;
+ 691                  ;       ** SUBROUTINES FOLLOW **
+ 692  1E1E  A5 FB     PRTPNT  LDA   POINTH    PRINT POINTL, POINTH          1E1E
+ 693  1E20  20 3B 1E          JSR   PRTBYT
+ 694  1E23  20 91 1F          JSR   CHK
+ 695  1E26  A5 FA             LDA   POINTL
+ 696  1E28  20 3B 1E          JSR   PRTBYT
+ 697  1E2B  20 91 1F          JSR   CHK
+ 698  1E2E  60                RTS
+ 699                  ;       **PRINT STRING OF ASCII CHARS FROM TOP+X TO TOP
+ 700  1E2F  A2 07     CRLF    LDX   #$07    
+ 701  1E31  BD D5 1F  PRTST   LDA   TOP,X 
+ 702  1E34  20 A0 1E          JSR   OUTCH
+ 703  1E37  CA                DEX 
+ 704  1E38  10 F7             BPL   PRTST     STOP ON INDEX ZERO
+ 705  1E3A  60                RTS
+ 706                  ;       ** PRINT 1 HEX BYTE AS 2 ASCII CHARS **
+ 707  1E3B  85 FC     PRTBYT  STA   TEMP                                    1E3B
+ 708  1E3D  4A                LSR   A         SHIFT CHAR RIGHT 4 BITS
+ 709  1E3E  4A                LSR   A
+ 710  1E3F  4A                LSR   A
+ 711  1E40  4A                LSR   A
+ 712  1E41  20 4C 1E          JSR   HEXTA     CONVERT TO HEX AND PRINT
+ 713  1E44  A5 FC             LDA   TEMP      GET OTHER HALF
+ 714  1E46  20 4C 1E          JSR   HEXTA     CONVERT TO HEX AND PRINT
+ 715  1E49  A5 FC             LDA   TEMP      RESTORE BYTE IN A AND RETURN
+ 716  1E4B  60                RTS   
+ 717  1E4C  29 0F     HEXTA   AND   #$0F      MASK HI 4 BITS
+ 718  1E4E  C9 0A             CMP   #$0A
+ 719  1E50  18                CLC       
+ 720  1E51  30 02             BMI   HEXTA1
+ 721  1E53  69 07             ADC   #$07      ALPHA HEX
+ 722  1E55  69 30     HEXTA1  ADC   #$30      DEC HEX
+ 723  1E57  4C A0 1E          JMP   OUTCH     PRINT CHAR
+ 724                  ;       ** GET 1 CHAR FROM TTY, CHAR IN A
+ 725  1E5A  86 FD     GETCH   STX   TMPX      SAVE X REG     1E5A
+ 726  1E5C  A2 08             LDX   #$08      SET UP 8-BIT COUNT
+ 727  1E5E  A9 01             LDA   #$01
+ 728  1E60  2C 40 17  GET1    BIT   SAD
+ 729  1E63  D0 22             BNE   GET6 
+ 730  1E65  30 F9             BMI   GET1      WAIT FOR START BIT
+ 731  1E67  20 D4 1E          JSR   DELAY     DELAY 1 BIT
+ 732  1E6A  20 EB 1E  GET5    JSR   DEHALF    DELAY 1/2 BIT TIME
+ 733  1E6D  AD 40 17  GET2    LDA   SAD       GET 8 BITS
+ 734  1E70  29 80             AND   #$80      MASK OFF LOW ORDER BITS
+ 735  1E72  46 FE             LSR   CHAR      SHIFT RIGHT CHAR
+ 736  1E74  05 FE             ORA   CHAR
+ 737  1E76  85 FE             STA   CHAR
+ 738  1E78  20 D4 1E          JSR   DELAY     DELAY 1 BIT TIME
+ 739  1E7B  CA                DEX  
+ 740  1E7C  D0 EF             BNE   GET2      GET NEXT CHAR
+ 741  1E7E  20 EB 1E          JSR   DEHALF    EXIT THIS ROUTINE
+ 742  1E81  A6 FD             LDX   TMPX
+ 743  1E83  A5 FE             LDA   CHAR
+ 744  1E85  2A                ROL   A SHIFT OFF PARITY
+ 745  1E86  4A                LSR   A
+ 746  1E87  60        GET6    RTS   
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 14
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 747                  ;       ** INITIALIZATION FOR SIGMA **
+ 748  1E88  A2 01     INITS   LDX   #$01      SET KB MODE TO ADDR           1E88
+ 749  1E8A  86 FF             STX   MODE
+ 750  1E8C  A2 00     INIT1   LDX   #$00      
+ 751  1E8E  8E 41 17          STX   PADD      FOR SIGMA USE SADD
+ 752  1E91  A2 3F             LDX   #$3F
+ 753  1E93  8E 43 17          STX   PBDD      FOR SIGMA USE SBDD
+ 754  1E96  A2 07             LDX   #$07      ENABLE DATA IN
+ 755  1E98  8E 42 17          STX   SBD       OUTPUT
+ 756  1E9B  D8                CLD    
+ 757  1E9C  78                SEI    
+ 758  1E9D  60                RTS
+ 759                  ;       ** PRINT ONE CHAR IN A **
+ 760  1E9E  A9 20     OUTSP   LDA   #$20      PRINT SPACE                   1E9E
+ 761  1EA0  85 FE     OUTCH   STA   CHAR
+ 762  1EA2  86 FD             STX   TMPX
+ 763  1EA4  20 D4 1E          JSR   DELAY     DELAY 10/11 BIT CODE SYNC
+ 764  1EA7  AD 42 17          LDA   SBD       START BIT
+ 765  1EAA  29 FE             AND   #$FE
+ 766  1EAC  8D 42 17          STA   SBD
+ 767  1EAF  20 D4 1E          JSR   DELAY
+ 768  1EB2  A2 08             LDX   #$08 
+ 769  1EB4  AD 42 17  OUT1    LDA   SBD       DATA BIT
+ 770  1EB7  29 FE             AND   #$FE 
+ 771  1EB9  46 FE             LSR   CHAR
+ 772  1EBB  69 00             ADC   #$00
+ 773  1EBD  8D 42 17          STA   SBD  
+ 774  1EC0  20 D4 1E          JSR   DELAY
+ 775  1EC3  CA                DEX  
+ 776  1EC4  D0 EE             BNE   OUT1
+ 777  1EC6  AD 42 17          LDA   SBD       STOP BIT
+ 778  1EC9  09 01             ORA   #$01
+ 779  1ECB  8D 42 17          STA   SBD
+ 780  1ECE  20 D4 1E          JSR   DELAY     STOP BIT
+ 781  1ED1  A6 FD             LDX   TMPX      RESTORE INDEX
+ 782  1ED3  60                RTS
+ 783                  ;       ** DELAY 1 BIT TIME **
+ 784  1ED4  AD F3 17  DELAY   LDA   CNTH30                                  1ED4
+ 785  1ED7  8D F4 17          STA   TIMH
+ 786  1EDA  AD F2 17          LDA   CNTL30
+ 787  1EDD  38        DE2     SEC   
+ 788  1EDE  E9 01     DE4     SBC   #$01 
+ 789  1EE0  B0 03             BCS   DE3  
+ 790  1EE2  CE F4 17          DEC   TIMH
+ 791  1EE5  AC F4 17  DE3     LDY   TIMH
+ 792  1EE8  10 F3             BPL   DE2
+ 793  1EEA  60                RTS
+ 794                  ;       ** DELAY 1/2 BIT TIME **
+ 795  1EEB  AD F3 17  DEHALF  LDA   CNTH30                                  1EEB
+ 796  1EEE  8D F4 17          STA   TIMH
+ 797  1EF1  AD F2 17          LDA   CNTL30
+ 798  1EF4  4A                LSR   A
+ 799  1EF5  4E F4 17          LSR   TIMH
+ 800  1EF8  90 E3             BCC   DE2
+ 801  1EFA  09 80             ORA   #$80
+ 802  1EFC  B0 E0             BCS   DE4
+ 803                  ;       ** SUB TO DETERMINE IF KEY IS DEPRESSED OR 
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 15
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 804                  ;          CONDITION OF SSW KEY NOT DEPRESSED OR
+ 805                  ;          TTY MODE  A=0
+ 806                  ;          KEY DEPRESSED OR KB MODE  A NOT ZERO
+ 807  1EFE  A0 03     AK      LDY   #$03      3 ROWS
+ 808  1F00  A2 01             LDX   #$01      DIGIT 0
+ 809  1F02  A9 FF     ONEKEY  LDA   #$FF
+ 810  1F04  8E 42 17  AK1     STX   SBD       OUTPUT DIGIT
+ 811  1F07  E8                INX             GET NEXT DIGIT
+ 812  1F08  E8                INX 
+ 813  1F09  2D 40 17          AND   SAD       INPUT SEGMENTS
+ 814  1F0C  88                DEY 
+ 815  1F0D  D0 F5             BNE   AK1
+ 816  1F0F  A0 07             LDY   #$07
+ 817  1F11  8C 42 17          STY   SBD
+ 818  1F14  09 80             ORA   #$80
+ 819  1F16  49 FF             EOR   #$FF
+ 820  1F18  60                RTS 
+ 821                  ;       ** OUTPUT TO 7-SEGMENT DISPLAY **
+ 822  1F19  A0 00     SCAND   LDY   #$00      GET DATA                      1F19
+ 823  1F1B  B1 FA             LDA   (POINTL),Y  SPECIFIED BY POINT
+ 824  1F1D  85 F9             STA   INH       SET UP DISPLAY BUFFER
+ 825  1F1F  A9 7F             LDA   #$7F      CHANGE SEG
+ 826  1F21  8D 41 17          STA   PADD      TO OUTPUT
+ 827  1F24  A2 09             LDX   #$09      INIT DIGIT NUMBER
+ 828  1F26  A0 03             LDY   #$03      OUTPUT 3 BYTES
+ 829  1F28  B9 F8 00  SCAND1  LDA   INL,Y     GET BYTE
+ 830  1F2B  4A                LSR   A         GET MSD
+ 831  1F2C  4A                LSR   A
+ 832  1F2D  4A                LSR   A
+ 833  1F2E  4A                LSR   A
+ 834  1F2F  20 48 1F          JSR   CONVD     OUTPUT CHAR
+ 835  1F32  B9 F8 00          LDA   INL,Y     GET BYTE AGAIN
+ 836  1F35  29 0F             AND   #$0F      GET LSD
+ 837  1F37  20 48 1F          JSR   CONVD     OUTPUT CHAR
+ 838  1F3A  88                DEY             SET UP FOR NEXT BYTE
+ 839  1F3B  D0 EB             BNE   SCAND1
+ 840  1F3D  8E 42 17          STX   SBD       ALL DIGITS OFF
+ 841  1F40  A9 00             LDA   #$00      CHANGE SEGMENT
+ 842  1F42  8D 41 17          STA   PADD      TO INPUTS
+ 843  1F45  4C FE 1E          JMP   AK        GET ANY KEY
+ 844                  ;       ** CONVERT AND DISPLAY HEX (USED BY SCAND ONLY)**
+ 845  1F48  84 FC     CONVD   STY   TEMP
+ 846  1F4A  A8                TAY             SAVE Y
+ 847  1F4B  B9 E7 1F          LDA   TABLE,Y   USE CHAR AS INDEX
+ 848  1F4E  A0 00             LDY   #$00      LOOKUP CONVERSION
+ 849  1F50  8C 40 17          STY   SAD       TURN OFF SEGMENTS
+ 850  1F53  8E 42 17          STX   SBD       OUTPUT DIGIT ENABLE
+ 851  1F56  8D 40 17          STA   SAD       OUTPUT SEGMENTS
+ 852  1F59  A0 7F             LDY   #$7F      DELAY 500 CYCLES
+ 853  1F5B  88        CONVD1  DEY   
+ 854  1F5C  D0 FD             BNE   CONVD1
+ 855  1F5E  E8                INX             GET NEXT DIGIT NUMBER
+ 856  1F5F  E8                INX             ADD 2
+ 857  1F60  A4 FC             LDY   TEMP      RESTORE Y
+ 858  1F62  60                RTS
+ 859                  ;       ** INCREMENT POINT **
+ 860  1F63  E6 FA     INCPT   INC   POINTL
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 16
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 861  1F65  D0 02             BNE   INCPT2
+ 862  1F67  E6 FB             INC   POINTH
+ 863  1F69  60        INCPT2  RTS   
+ 864                  ;       ** GET KEY FROM KEYPAD A=KEYVALUE **
+ 865  1F6A  A2 21     GETKEY  LDX   #$21      START AT DIGIT 0              1F6A
+ 866  1F6C  A0 01     GETKE5  LDY   #$01      GET 1 ROW
+ 867  1F6E  20 02 1F          JSR   ONEKEY
+ 868  1F71  D0 07             BNE   KEYIN     A=0 NO KEY
+ 869  1F73  E0 27             CPX   #$27      TEST FOR DIGIT 2
+ 870  1F75  D0 F5             BNE   GETKE5
+ 871  1F77  A9 15             LDA   #$15      15=NOKEY
+ 872  1F79  60                RTS
+ 873  1F7A  A0 FF     KEYIN   LDY   #$FF      
+ 874  1F7C  0A        KEYIN1  ASL   A         SHIFT LEFT
+ 875  1F7D  B0 03             BCS   KEYIN2    UNTIL Y=KEY NO
+ 876  1F7F  C8                INY   
+ 877  1F80  10 FA             BPL   KEYIN1
+ 878  1F82  8A        KEYIN2  TXA  
+ 879  1F83  29 0F             AND   #$0F      MASK MSD
+ 880  1F85  4A                LSR   A         DIVIDE BY 2
+ 881  1F86  AA                TAX   
+ 882  1F87  98                TYA   
+ 883  1F88  10 03             BPL   KEYIN4
+ 884  1F8A  18        KEYIN3  CLC   
+ 885  1F8B  69 07             ADC   #$07      MULT (X-1 TIMES A
+ 886  1F8D  CA        KEYIN4  DEX   
+ 887  1F8E  D0 FA             BNE   KEYIN3
+ 888  1F90  60                RTS
+ 889                  ;       ** COMPUTE CHECKSUM **
+ 890  1F91  18        CHK     CLC   
+ 891  1F92  65 F7             ADC   CHKSUM
+ 892  1F94  85 F7             STA   CHKSUM
+ 893  1F96  A5 F6             LDA   CHKHI
+ 894  1F98  69 00             ADC   #$00
+ 895  1F9A  85 F6             STA   CHKHI
+ 896  1F9C  60                RTS
+ 897                  ;       ** GET 2 HEX CHARS AND PACK INTO INL AND INH **
+ 898  1F9D  20 5A 1E  GETBYT  JSR   GETCH
+ 899  1FA0  20 AC 1F          JSR   PACK
+ 900  1FA3  20 5A 1E          JSR   GETCH
+ 901  1FA6  20 AC 1F          JSR   PACK
+ 902  1FA9  A5 F8             LDA   INL
+ 903  1FAB  60                RTS
+ 904                  ;       ** SHIFT CHAR IN A INTO INL AND INH **
+ 905  1FAC  C9 30     PACK    CMP   #$30      CHECK FOR HEX  1FAC
+ 906  1FAE  30 1B             BMI   UPDAT2
+ 907  1FB0  C9 47             CMP   #$47      NOT HEX EXIT
+ 908  1FB2  10 17             BPL   UPDAT2
+ 909  1FB4  C9 40             CMP   #$40      CONVERT TO HEX
+ 910  1FB6  30 03             BMI   UPDATE
+ 911  1FB8  18                CLC   
+ 912  1FB9  69 09             ADC   #$09
+ 913  1FBB  2A        UPDATE  ROL   A
+ 914  1FBC  2A                ROL   A
+ 915  1FBD  2A                ROL   A
+ 916  1FBE  2A                ROL   A
+ 917  1FBF  A0 04             LDY   #$04      SHIFT INTO I/O BUFFER
+
+KIM.ASM               6502 CROSS-ASSEMBLER  ver 1.0rmb    12-17-1981   Page 17
+LINE   LOC  INSTR           SOURCE CODE
+ 
+ 918  1FC1  2A        UPDAT1  ROL   A 
+ 919  1FC2  26 F8             ROL   INL
+ 920  1FC4  26 F9             ROL   INH
+ 921  1FC6  88                DEY   
+ 922  1FC7  D0 F8             BNE   UPDAT1
+ 923  1FC9  A9 00             LDA   #$00      A=0 IF HEX NUM
+ 924  1FCB  60        UPDAT2  RTS   
+ 925                  ;
+ 926  1FCC  A5 F8     OPEN    LDA   INL       MOVE I/O BUFFER TO POINT
+ 927  1FCE  85 FA             STA   POINTL
+ 928  1FD0  A5 F9             LDA   INH       TRANSFER INH- POINTH
+ 929  1FD2  85 FB             STA   POINTH
+ 930  1FD4  60                RTS
+ 931                  ;
+ 932                  ;       ** TABLES **
+ 933  1FD5  00 00     TOP     .DBYTE $0000,$0000,$0000,$0A0D                1FD5
+ 934  1FD7  00 00      
+ 935  1FD9  00 00      
+ 936  1FDB  0A 0D      
+ 938  1FDD  4D                .BYTE  'M,'I,'K,$20,$13         KIM
+ 939  1FDE  49         
+ 940  1FDF  4B         
+ 941  1FE0  20         
+ 942  1FE1  13         
+ 944  1FE2  52                .BYTE  'R,'R,'E,$20,$13         ERR
+ 945  1FE3  52         
+ 946  1FE4  45         
+ 947  1FE5  20         
+ 948  1FE6  13         
+ 950  1FE7  BF 86     TABLE   .DBYTE $BF86,$DBCF,$E6ED,$FD87 ;0-7           1FE7
+ 951  1FE9  DB CF      
+ 952  1FEB  E6 ED      
+ 953  1FED  FD 87      
+ 955  1FEF  FF EF             .DBYTE $FFEF,$F7FC,$B9DE,$F9F1 ;8-F HEX TO 7-SEG
+ 956  1FF1  F7 FC      
+ 957  1FF3  B9 DE      
+ 958  1FF5  F9 F1      
+ 960                  ;
+ 961                  ;       ** INTERRUPT VECTORS **
+ 962                          *=    $1FFA
+ 963  1FFA  1C 1C     NMIENT  .WORD NMIT
+ 965  1FFC  22 1C     RSTENT  .WORD RST
+ 967  1FFE  1F 1C     IRQENT  .WORD IRQT
+ 969                          .END
+ 
+              No Errors found above.
+KIM.ASM                     SYMBOL  TABLE  DUMP
+ 
+ACC    00F3    DET3   1C3A    INTVEB 1932    OUT1   1EB4    SAH    17F6    
+ADDR   1CBE    DUMP   1D42    IRQENT 1FFE    OUTBT  1961    SAL    17F5    
+ADDRM  1CC8    DUMP0  1D48    IRQP27 1BFE    OUTBTC 195E    SAVE   1C00    
+AK     1EFE    DUMP2  1D86    IRQT   1C1F    OUTCH  1EA0    SAVX   17E9    
+AK1    1F04    DUMP3  1DA6    IRQV   17FE    OUTCHT 197A    SBD    1742    
+CHAR   00FE    DUMP4  1D7A    KEYIN  1F7A    OUTSP  1E9E    SCAN   1DDB    
+CHK    1F91    DUMPT  1800    KEYIN1 1F7C    PACK   1FAC    SCAND  1F19    
+CHKH   17E8    DUMPT1 1814    KEYIN2 1F82    PACKT  1A00    SCAND1 1F28    
+CHKHI  00F6    DUMPT2 1833    KEYIN3 1F8A    PACKT1 1A0F    SHOW   1DAC    
+CHKL   17E7    DUMPT3 1854    KEYIN4 1F8D    PACKT2 1A15    SHOW1  1DAF    
+CHKSUM 00F7    DUMPT4 1865    LOAD   1CE7    PACKT3 1A22    SPACE  1DA9    
+CHKT   194C    DUMPV  1E01    LOAD10 192B    PADD   1741    SPUSER 00F2    
+CHT1   1982    EAH    17F8    LOAD11 18C2    PBDD   1743    START  1C4F    
+CHT2   198E    EAL    17F7    LOAD12 190F    PCCMD  1CDC    STEP   1CD3    
+CHT3   1991    FEED   1E07    LOAD13 18FA    PCH    00F0    STV    1DFE    
+CLEAR  1C64    FEED1  1E12    LOAD2  1D0E    PCL    00EF    SYNC   1891    
+CLK1T  1744    GET1   1E60    LOAD3  1D1D    PLL1   1A75    SYNC1  1896    
+CLK64T 1746    GET2   1E6D    LOAD8  1D30    PLL2   1A84    SYNC2  18AB    
+CLK8T  1745    GET5   1E6A    LOADE1 1D3B    PLLCAL 1A6B    TAB    1871    
+CLKKT  1747    GET6   1E87    LOADER 1D3E    POINTH 00FB    TABLE  1FE7    
+CLKRDI 1747    GETBYT 1F9D    LOADT  1873    POINTL 00FA    TEMP   00FC    
+CLKRDT 1746    GETCH  1E5A    LOADT4 18B5    PREG   00F1    TIMH   17F4    
+CNTH30 17F3    GETKE5 1F6C    LOADT5 18D7    PRTBYT 1E3B    TMPX   00FD    
+CNTL30 17F2    GETKEY 1F6A    LOADT6 18EC    PRTPNT 1E1E    TOP    1FD5    
+CONVD  1F48    GOEXEC 1DC8    LOADT7 18F8    PRTST  1E31    TTYKB  1C77    
+CONVD1 1F5B    GOV    1CD9    LOADT8 1915    RDBIT  1A41    TTYKB1 1C7C    
+CRLF   1E2F    HEX1   1978    LOADT9 1929    RDBIT2 1A53    UPDAT1 1FC1    
+DATA1  1CB0    HEXOUT 196F    LOADV  1E04    RDBIT3 1A50    UPDAT2 1FCB    
+DATA2  1CC3    HEXTA  1E4C    MODE   00FF    RDBIT4 1A63    UPDATE 1FBB    
+DATAM  1CCC    HEXTA1 1E55    MODIFY 1E15    RDBYT  19F3    VEB    17EC    
+DATAM1 1CCE    ID     17F9    NMIENT 1FFA    RDCHT  1A24    XREG   00F5    
+DATAM2 1CD0    INCPT  1F63    NMIP27 1BFA    RDCHT1 1A29    YREG   00F4    
+DE2    1EDD    INCPT2 1F69    NMIT   1C1C    READ   1C6A    ZRO    19C4    
+DE3    1EE5    INCVE1 19F2    NMIV   17FA    RST    1C22    ZRO1   19C7    
+DE4    1EDE    INCVEB 19EA    ONE    199E    RSTENT 1FFC    ZRO2   19D6    
+DEHALF 1EEB    INH    00F9    ONE1   19A1    RSTP27 1BFC    
+DELAY  1ED4    INIT1  1E8C    ONE2   19B0    RSTV   17FC    
+DET1   1C31    INITS  1E88    ONEKEY 1F02    RTRN   1DC2    
+DET2   1C42    INL    00F8    OPEN   1FCC    SAD    1740    
+ 191 Labels listed
