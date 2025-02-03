@@ -1,0 +1,19 @@
+---------------------------------------------------------------------------
+NCDrill File Report For: MKRAM.PcbDoc   6/21/2007  4:12:22 PM
+---------------------------------------------------------------------------
+
+Layer Pair : Top Layer to Bottom Layer
+ASCII RoundHoles File : MKRAM.TXT
+EIA File   : MKRAM.DRL
+
+Tool         Hole Size           Hole Type     Hole Count Plated       Tool Travel
+---------------------------------------------------------------------------
+T1        15mil (0.381mm)          Round          5                5.87 Inch (148.99 mm)
+T2        28mil (0.7112mm)         Round          6                7.09 Inch (179.97 mm)
+T3        29mil (0.7366mm)         Round          58               12.86 Inch (326.52 mm)
+T4        33.5mil (0.8509mm)       Round          4                5.87 Inch (149.20 mm)
+T5        35mil (0.889mm)          Round          40               9.36 Inch (237.63 mm)
+---------------------------------------------------------------------------
+Totals                                            113              41.04 Inch (1042.31 mm)
+
+Total Processing Time (hh:mm:ss) : 00:00:00
